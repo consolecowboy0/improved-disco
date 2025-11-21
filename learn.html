@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RL Race Car Lab</title>
+  <style>
+    :root {
+      --bg: #fdfdfd;
+      --ink: #0e0e0e;
+      --muted: #6b7280;
+      --panel: #ffffff;
+      --line: #111111;
+      --accent: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      padding: 1.25rem;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.5rem, 2vw, 2rem);
+      letter-spacing: -0.02em;
+      font-weight: 800;
+    }
+
+    h1 span {
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1rem;
+      letter-spacing: -0.01em;
+      max-width: 720px;
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    #canvasWrap {
+      position: relative;
+      background: var(--panel);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 16px;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    #view {
+      width: 100%;
+      height: 64vh;
+      min-height: 420px;
+      display: block;
+      background: var(--panel);
+    }
+
+    .overlay {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      gap: 0.75rem;
+      font-size: 0.95rem;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.75);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      border-radius: 999px;
+      padding: 0.45rem 0.75rem;
+      backdrop-filter: blur(10px);
+    }
+
+    .overlay div {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      white-space: nowrap;
+    }
+
+    .overlay strong {
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .control {
+      background: var(--panel);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 12px;
+      padding: 0.85rem 1rem 0.75rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .control small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+
+    .value {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--line);
+    }
+
+    #reset {
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      background: transparent;
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 0.65rem 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    #reset:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08);
+    }
+  </style>
+</head>
+  <body>
+    <header>
+      <div>
+        <h1>Interactive RL Racer <span>course lab</span></h1>
+        <p class="subtitle">Guide a minimalist race car with policy, discount, exploration, and reward tuning to find a faster line through the course.</p>
+      </div>
+    </header>
+
+  <main>
+    <section id="canvasWrap">
+      <canvas id="view" width="1100" height="640" aria-label="race track simulation"></canvas>
+      <div class="overlay">
+        <div>Reward <strong id="rewardReadout">0.00</strong></div>
+        <div>Policy <strong id="policyReadout">0.00</strong></div>
+        <div>Noise <strong id="noiseReadout">0.00</strong></div>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="control">
+        <label for="learning">Learning rate <span class="value" id="learningVal">0.20</span></label>
+        <small>How quickly the policy weight shifts toward new rewards.</small>
+        <input type="range" id="learning" min="0.01" max="1" step="0.01" value="0.2" />
+      </div>
+
+      <div class="control">
+        <label for="discount">Discount factor <span class="value" id="discountVal">0.90</span></label>
+        <small>Preference for future gains along the course.</small>
+        <input type="range" id="discount" min="0.5" max="0.999" step="0.001" value="0.9" />
+      </div>
+
+      <div class="control">
+        <label for="exploration">Exploration rate <span class="value" id="explorationVal">0.15</span></label>
+        <small>Noise injected into steering to discover new lines.</small>
+        <input type="range" id="exploration" min="0" max="0.6" step="0.01" value="0.15" />
+      </div>
+
+      <div class="control">
+        <label for="reward">Reward emphasis <span class="value" id="rewardVal">1.50</span></label>
+        <small>Weight given to carrying speed along the fastest path.</small>
+        <input type="range" id="reward" min="0.5" max="3" step="0.05" value="1.5" />
+      </div>
+
+      <div class="control">
+        <button id="reset" type="button">Reset car &amp; policy</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("view");
+    const ctx = canvas.getContext("2d");
+
+    const params = {
+      learningRate: 0.2,
+      discount: 0.9,
+      exploration: 0.15,
+      rewardScale: 1.5,
+    };
+
+    const state = {
+      s: Math.random(),
+      heading: 0,
+      policyWeight: 0,
+      velocity: 120,
+    };
+
+    const track = {
+      width: 58,
+      points: [
+        { x: 250, y: 180 },
+        { x: 520, y: 140 },
+        { x: 820, y: 180 },
+        { x: 930, y: 320 },
+        { x: 860, y: 470 },
+        { x: 660, y: 520 },
+        { x: 440, y: 500 },
+        { x: 260, y: 420 },
+        { x: 170, y: 300 },
+      ],
+      samples: [],
+      cumulative: [],
+      length: 0,
+    };
+
+    const rewardLabel = document.getElementById("rewardReadout");
+    const policyLabel = document.getElementById("policyReadout");
+    const noiseLabel = document.getElementById("noiseReadout");
+
+    function catmullRom(p0, p1, p2, p3, t) {
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return {
+        x:
+          0.5 *
+          ((2 * p1.x) +
+            (-p0.x + p2.x) * t +
+            (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+            (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y:
+          0.5 *
+          ((2 * p1.y) +
+            (-p0.y + p2.y) * t +
+            (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+            (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+      };
+    }
+
+    function buildTrack() {
+      const n = track.points.length;
+      const samples = [];
+      for (let i = 0; i < n; i++) {
+        const p0 = track.points[(i - 1 + n) % n];
+        const p1 = track.points[i];
+        const p2 = track.points[(i + 1) % n];
+        const p3 = track.points[(i + 2) % n];
+        for (let t = 0; t < 1; t += 0.025) {
+          samples.push(catmullRom(p0, p1, p2, p3, t));
+        }
+      }
+      samples.push(samples[0]);
+
+      let length = 0;
+      const cumulative = [0];
+      for (let i = 1; i < samples.length; i++) {
+        const a = samples[i - 1];
+        const b = samples[i];
+        length += Math.hypot(b.x - a.x, b.y - a.y);
+        cumulative.push(length);
+      }
+
+      track.samples = samples;
+      track.cumulative = cumulative;
+      track.length = length;
+    }
+
+    function pointAtDistance(distance) {
+      const wrapped = ((distance % track.length) + track.length) % track.length;
+      let low = 0;
+      let high = track.cumulative.length - 1;
+      while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (track.cumulative[mid] < wrapped) low = mid + 1;
+        else high = mid;
+      }
+      const i = Math.max(1, low);
+      const prev = track.samples[i - 1];
+      const next = track.samples[i];
+      const segmentLength = track.cumulative[i] - track.cumulative[i - 1];
+      const localT = segmentLength === 0 ? 0 : (wrapped - track.cumulative[i - 1]) / segmentLength;
+      return {
+        x: prev.x + (next.x - prev.x) * localT,
+        y: prev.y + (next.y - prev.y) * localT,
+        idx: i,
+      };
+    }
+
+    function directionAt(idx) {
+      const prev = track.samples[(idx - 1 + track.samples.length) % track.samples.length];
+      const next = track.samples[(idx + 1) % track.samples.length];
+      return Math.atan2(next.y - prev.y, next.x - prev.x);
+    }
+
+    function wrapAngle(angle) {
+      while (angle > Math.PI) angle -= Math.PI * 2;
+      while (angle < -Math.PI) angle += Math.PI * 2;
+      return angle;
+    }
+
+    function bindControl(id, key, labelId, decimals = 2) {
+      const input = document.getElementById(id);
+      const label = document.getElementById(labelId);
+      const update = () => {
+        params[key] = parseFloat(input.value);
+        label.textContent = input.valueAsNumber.toFixed(decimals);
+      };
+      input.addEventListener("input", update);
+      update();
+    }
+
+    bindControl("learning", "learningRate", "learningVal");
+    bindControl("discount", "discount", "discountVal", 3);
+    bindControl("exploration", "exploration", "explorationVal");
+    bindControl("reward", "rewardScale", "rewardVal");
+
+    document.getElementById("reset").addEventListener("click", () => {
+      state.s = Math.random() * track.length;
+      state.heading = directionAt(1);
+      state.policyWeight = 0;
+      state.velocity = 120;
+    });
+
+    function drawCourse() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = track.width;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      for (let i = 0; i < track.samples.length; i++) {
+        const p = track.samples[i];
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.setLineDash([10, 14]);
+      ctx.beginPath();
+      for (let i = 0; i < track.samples.length; i++) {
+        const p = track.samples[i];
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      drawStartLine();
+    }
+
+    function drawStartLine() {
+      const start = pointAtDistance(0);
+      const direction = directionAt(start.idx) + Math.PI / 2;
+      const offset = track.width / 2;
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(start.x + Math.cos(direction) * offset, start.y + Math.sin(direction) * offset);
+      ctx.lineTo(start.x - Math.cos(direction) * offset, start.y - Math.sin(direction) * offset);
+      ctx.stroke();
+    }
+
+    function drawCar(position, heading) {
+      ctx.save();
+      ctx.translate(position.x, position.y);
+      ctx.rotate(heading);
+
+      const w = 24;
+      const h = 42;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, w, h, 7);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-w / 2 - 6, -h / 2 + 6, 6, 12);
+      ctx.fillRect(w / 2, -h / 2 + 6, 6, 12);
+      ctx.fillRect(-w / 2 - 6, h / 2 - 18, 6, 12);
+      ctx.fillRect(w / 2, h / 2 - 18, 6, 12);
+
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 10);
+      ctx.lineTo(0, -h / 2 - 12);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawGhost(position) {
+      ctx.save();
+      ctx.translate(position.x, position.y);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.08)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function step(dt) {
+      const pose = pointAtDistance(state.s);
+      const targetHeading = directionAt(pose.idx);
+      const headingError = wrapAngle(targetHeading - state.heading);
+
+      const forwardSpeed = Math.max(0, Math.cos(headingError)) * state.velocity;
+      const reward = params.rewardScale * (forwardSpeed / 200 - 0.25 * Math.abs(headingError));
+
+      const tdTarget = reward + params.discount * state.policyWeight;
+      const delta = tdTarget - state.policyWeight;
+      state.policyWeight += params.learningRate * delta;
+
+      const explorationNoise = (Math.random() * 2 - 1) * params.exploration;
+      const action = state.policyWeight * headingError + explorationNoise;
+      state.heading = wrapAngle(state.heading + action * dt * 3.5);
+
+      state.velocity += (reward * 18 - Math.abs(headingError) * 10) * dt;
+      state.velocity = Math.max(80, Math.min(260, state.velocity));
+
+      const distance = state.velocity * dt;
+      state.s = (state.s + distance) % track.length;
+
+      rewardLabel.textContent = reward.toFixed(2);
+      policyLabel.textContent = state.policyWeight.toFixed(2);
+      noiseLabel.textContent = explorationNoise.toFixed(2);
+
+      drawScene(pose, state.heading);
+    }
+
+    function drawScene(position, heading) {
+      drawCourse();
+      drawGhost(pointAtDistance((state.s + 80) % track.length));
+      drawCar(position, heading);
+    }
+
+    function init() {
+      buildTrack();
+      state.s = Math.random() * track.length;
+      state.heading = directionAt(1);
+      drawCourse();
+      requestAnimationFrame(loop);
+    }
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+      step(dt);
+      requestAnimationFrame(loop);
+    }
+
+    init();
+  </script>
+</body>
+</html>
